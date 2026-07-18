@@ -60,7 +60,7 @@ class ModeloBitcoin:
             modelo = LinearRegression()
             modelo.fit(X, y)
             
-            dia_mañana = np.array([[len(df)]])
+            dia_mañana = pd.DataFrame({'Dias': [len(df)]})
             self.prediccion_mañana = modelo.predict(dia_mañana)[0]
             
             if self.prediccion_mañana > self.precio_actual:

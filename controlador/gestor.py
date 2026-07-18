@@ -1,14 +1,23 @@
 from modelo.motor_ia import ModeloBitcoin
 from modelo.backtesting import MotorBacktesting
-from modelo.dao import OperacionDAO  # NUEVA IMPORTACIÓN
+from modelo.dao import OperacionDAO
+from modelo.autenticacion import GestorCredenciales
+from modelo.ejecucion import GestorOrdenes  # NUEVA IMPORTACIÓN
 from vista.interfaz import VistaTerminal
 
 class ControladorTerminal:
     def __init__(self, root):
         self.modelo = ModeloBitcoin()
         self.simulador = MotorBacktesting()
-        self.dao = OperacionDAO()  # INICIALIZAMOS EL DAO
+        self.dao = OperacionDAO()
+        self.auth = GestorCredenciales()
+        self.ejecutor = GestorOrdenes()  # INICIALIZAMOS EL EJECUTOR
         self.vista = VistaTerminal(root, self)
+
+        if self.auth.validar_credenciales():
+            print("🔒 Seguridad: Credenciales de Binance cargadas y validadas.")
+        else:
+            print("⚠️ Alerta: No se encontró el archivo .env o faltan las credenciales.")
 
     def calcular_decision_final(self):
         tendencia = self.modelo.tendencia_ia
@@ -38,14 +47,27 @@ class ControladorTerminal:
         if exito:
             decision, color = self.calcular_decision_final()
             self.vista.actualizar_pantalla(exito, self.modelo, decision, color)
-            
-            # Encendemos el WebSocket
             self.modelo.iniciar_stream_precio(self.actualizar_precio_interfaz)
             
-            # --- NUEVO: GUARDAMOS EN BASE DE DATOS ---
-            # Limpiamos el texto de la decisión para que se vea bien en la BD
             decision_limpia = decision.replace(" ", "", 1).strip()
             self.dao.guardar_decision(self.modelo.precio_actual, self.modelo.rsi_actual, decision_limpia)
+
+            
+            # --- NUEVO: EJECUCIÓN DE ORDEN ---
+            # Si el bot aprueba una compra o venta, mandamos la petición a Binance
+            if "COMPRA APROBADA" in decision:
+                print("\nEnviando orden de COMPRA a la Testnet...")
+                exito_orden, mensaje = self.ejecutor.enviar_orden_mercado('BUY')
+                print(mensaje)
+                
+            elif "VENTA APROBADA" in decision:
+                print("\nEnviando orden de VENTA a la Testnet...")
+                exito_orden, mensaje = self.ejecutor.enviar_orden_mercado('SELL')
+                print(mensaje)
+
+            else:
+                # NUEVO: Nos avisa en consola si la operación se bloqueó
+                print(f"\nMercado inestable. {decision.strip()}. No se enviarán órdenes.")
 
     def actualizar_precio_interfaz(self, precio_nuevo):
         self.vista.root.after(0, lambda: self.vista.lbl_precio.config(text=f"Precio Actual: ${precio_nuevo:,.2f}"))
