@@ -44,6 +44,7 @@ class ModeloBitcoin:
             df['Close'] = df['Close'].astype(float)
             self.precio_actual = df['Close'].iloc[-1]
             
+            # --- CÁLCULO DE RSI ---
             delta = df['Close'].diff()
             up = delta.clip(lower=0)
             down = -1 * delta.clip(upper=0)
@@ -53,14 +54,31 @@ class ModeloBitcoin:
             df['RSI'] = 100 - (100 / (1 + rs))
             self.rsi_actual = df['RSI'].iloc[-1]
             
+            # --- NUEVO: CÁLCULO DE MEDIA MÓVIL (SMA_7) ---
+            df['SMA_7'] = df['Close'].rolling(window=7).mean()
+            
+            # Limpiamos los valores vacíos (NaN) que deja el RSI y la SMA en las primeras filas
+            df.dropna(inplace=True)
+            
+            # Enumeramos los días después de limpiar los datos
             df['Dias'] = np.arange(len(df))
-            X = df[['Dias']]
+            
+            # --- NUEVO: ENTRENAMIENTO MULTIVARIABLE ---
+            # Ahora la IA aprende cruzando 3 dimensiones: Tiempo, Fuerza (RSI) y Tendencia (SMA_7)
+            X = df[['Dias', 'RSI', 'SMA_7']]
             y = df['Close']
             
             modelo = LinearRegression()
             modelo.fit(X, y)
             
-            dia_mañana = pd.DataFrame({'Dias': [len(df)]})
+            # --- NUEVO: PREDICCIÓN ACTUALIZADA ---
+            # Para predecir mañana, le damos el día siguiente más los últimos datos conocidos
+            dia_mañana = pd.DataFrame({
+                'Dias': [len(df)],
+                'RSI': [self.rsi_actual],
+                'SMA_7': [df['SMA_7'].iloc[-1]]
+            })
+            
             self.prediccion_mañana = modelo.predict(dia_mañana)[0]
             
             if self.prediccion_mañana > self.precio_actual:
