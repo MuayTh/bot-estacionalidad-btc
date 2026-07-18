@@ -53,20 +53,27 @@ class ControladorTerminal:
             self.dao.guardar_decision(self.modelo.precio_actual, self.modelo.rsi_actual, decision_limpia)
 
             
-            # --- NUEVO: EJECUCIÓN DE ORDEN ---
-            # Si el bot aprueba una compra o venta, mandamos la petición a Binance
+            # --- NUEVO: EJECUCIÓN DE ORDEN Y GESTIÓN DE RIESGO ---
             if "COMPRA APROBADA" in decision:
-                print("\nEnviando orden de COMPRA a la Testnet...")
+                print("\n🚀 Iniciando protocolo de COMPRA en Testnet...")
                 exito_orden, mensaje = self.ejecutor.enviar_orden_mercado('BUY')
                 print(mensaje)
                 
+                # Si la orden pasó, calculamos las salidas de seguridad
+                if exito_orden:
+                    precio = self.modelo.precio_actual
+                    take_profit = precio * 1.03  # +3% de ganancia
+                    stop_loss = precio * 0.985   # -1.5% de pérdida máxima
+                    print(f"🛡️ Gestión de Riesgo Calculada:")
+                    print(f"   🎯 Take Profit (Vender en ganancia): ${take_profit:,.2f}")
+                    print(f"   🛑 Stop Loss (Cortar pérdida): ${stop_loss:,.2f}")
+                
             elif "VENTA APROBADA" in decision:
-                print("\nEnviando orden de VENTA a la Testnet...")
+                print("\n🚀 Iniciando protocolo de VENTA en Testnet...")
                 exito_orden, mensaje = self.ejecutor.enviar_orden_mercado('SELL')
                 print(mensaje)
 
             else:
-                # NUEVO: Nos avisa en consola si la operación se bloqueó
                 print(f"\nMercado inestable. {decision.strip()}. No se enviarán órdenes.")
 
     def actualizar_precio_interfaz(self, precio_nuevo):
