@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import datetime
 from sklearn.linear_model import LinearRegression
+import websocket
+import json
+import threading
 
 class ModeloBitcoin:
     def __init__(self):
@@ -12,7 +15,9 @@ class ModeloBitcoin:
         self.tendencia_ia = ""
         self.probabilidad_mes = 0
         self.riesgo_estacional = ""
-        self.rsi_actual = 50.0 # Nueva variable para el RSI
+        self.rsi_actual = 50.0 
+        self.ws = None 
+        self.callback_precio = None 
 
     def evaluar_estacionalidad(self):
         probabilidades_historicas = {
@@ -39,7 +44,6 @@ class ModeloBitcoin:
             df['Close'] = df['Close'].astype(float)
             self.precio_actual = df['Close'].iloc[-1]
             
-            # --- NUEVO: CÁLCULO MATEMÁTICO DEL RSI ---
             delta = df['Close'].diff()
             up = delta.clip(lower=0)
             down = -1 * delta.clip(upper=0)
@@ -48,7 +52,6 @@ class ModeloBitcoin:
             rs = ema_up / ema_down
             df['RSI'] = 100 - (100 / (1 + rs))
             self.rsi_actual = df['RSI'].iloc[-1]
-            # -----------------------------------------
             
             df['Dias'] = np.arange(len(df))
             X = df[['Dias']]
@@ -72,3 +75,26 @@ class ModeloBitcoin:
         except Exception as e:
             self.estado_conexion = f"Error de conexión: {e}"
             return False
+
+    # --- NUEVO: TÚNEL WEBSOCKET ---
+    def iniciar_stream_precio(self, callback):
+        self.callback_precio = callback
+        # Abrimos el túnel en un "hilo" paralelo para que la interfaz gráfica no se congele
+        hilo = threading.Thread(target=self._conectar_websocket)
+        hilo.daemon = True
+        hilo.start()
+
+    def _conectar_websocket(self):
+        url_ws = "wss://stream.binance.com:9443/ws/btcusdt@ticker"
+        self.ws = websocket.WebSocketApp(
+            url_ws,
+            on_message=self._al_recibir_mensaje
+        )
+        self.ws.run_forever()
+
+    def _al_recibir_mensaje(self, ws, mensaje):
+        datos = json.loads(mensaje)
+        precio_en_vivo = float(datos['c']) # 'c' significa Current/Close price
+        self.precio_actual = precio_en_vivo
+        if self.callback_precio:
+            self.callback_precio(precio_en_vivo)
