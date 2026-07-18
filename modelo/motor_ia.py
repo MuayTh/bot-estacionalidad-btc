@@ -6,6 +6,7 @@ from sklearn.linear_model import LinearRegression
 import websocket
 import json
 import threading
+import time
 
 class ModeloBitcoin:
     def __init__(self):
@@ -20,13 +21,58 @@ class ModeloBitcoin:
         self.callback_precio = None 
 
     def evaluar_estacionalidad(self):
-        probabilidades_historicas = {
-            1: 57.14, 2: 42.86, 3: 71.43, 4: 57.14, 5: 42.86, 6: 28.57,
-            7: 85.71, 8: 16.67, 9: 50.00, 10: 83.33, 11: 50.00, 12: 50.00
-        }
+        """
+        Calcula el % histórico de meses alcistas por mes calendario usando
+        TODO el historial disponible de BTCUSDT en Binance (desde 2017),
+        en vez de una tabla fija basada en 2020-2026.
+
+        Motivo del cambio: con solo 6-7 años de muestra, un porcentaje como
+        "85.71%" equivale a 6 aciertos sobre 7 observaciones -> un solo año
+        distinto mueve el porcentaje ~14 puntos. Ampliar la ventana a ~9 años
+        no elimina el problema de fondo (la estacionalidad de BTC sigue
+        siendo una muestra pequeña en términos estadísticos), pero sí reduce
+        el sobreajuste a la casualidad de un puñado de años específicos.
+        """
+        probabilidades_historicas = None
+        try:
+            url = "https://api.binance.com/api/v3/klines"
+            params = {
+                "symbol": "BTCUSDT",
+                "interval": "1M",
+                "startTime": 1502928000000,  # ago-2017: listado de BTCUSDT en Binance
+                "limit": 1000
+            }
+            response = requests.get(url, params=params, timeout=10).json()
+
+            df = pd.DataFrame(response, columns=[
+                'Fecha', 'Open', 'High', 'Low', 'Close', 'Volume', 'CloseTime',
+                'QuoteVolume', 'Trades', 'TakerBuyBase', 'TakerBuyQuote', 'Ignore'
+            ])
+            df['Open'] = df['Open'].astype(float)
+            df['Close'] = df['Close'].astype(float)
+            df['Fecha'] = pd.to_datetime(df['Fecha'], unit='ms')
+            df['Mes'] = df['Fecha'].dt.month
+            df['Alcista'] = df['Close'] > df['Open']
+
+            # Descartamos el mes en curso: aún no ha cerrado, no es una observación válida
+            hoy = datetime.datetime.now()
+            df = df[df['Fecha'] < datetime.datetime(hoy.year, hoy.month, 1)]
+
+            stats = df.groupby('Mes')['Alcista'].agg(['mean', 'count'])
+            probabilidades_historicas = (stats['mean'] * 100).round(2).to_dict()
+            self.muestra_por_mes = stats['count'].to_dict()
+            self._ultimas_probs = probabilidades_historicas  # cache para fallback
+
+        except Exception as e:
+            # Si falla la descarga, reusamos el último cálculo válido (o neutral si nunca hubo uno)
+            probabilidades_historicas = getattr(self, '_ultimas_probs', {m: 50.0 for m in range(1, 13)})
+            self.muestra_por_mes = getattr(self, 'muestra_por_mes', {})
+            print(f"⚠️ No se pudo recalcular estacionalidad, usando último valor conocido: {e}")
+
         mes_actual = datetime.datetime.now().month
         self.probabilidad_mes = probabilidades_historicas.get(mes_actual, 50.0)
-        
+        self.muestra_mes_actual = self.muestra_por_mes.get(mes_actual, 0)
+
         if self.probabilidad_mes >= 70:
             self.riesgo_estacional = "Favorable (Bajo Riesgo)"
         elif self.probabilidad_mes <= 40:
@@ -70,6 +116,12 @@ class ModeloBitcoin:
             
             modelo = LinearRegression()
             modelo.fit(X, y)
+
+            # Transparencia: qué tan bien ajusta la regresión a los datos.
+            # IMPORTANTE: un R² alto en datos de entrenamiento NO implica poder
+            # predictivo real sobre el precio futuro de BTC (activo altamente no lineal).
+            # Este valor es solo un indicador de ajuste, no una garantía de acierto.
+            self.confianza_modelo = modelo.score(X, y)
             
             # --- NUEVO: PREDICCIÓN ACTUALIZADA ---
             # Para predecir mañana, le damos el día siguiente más los últimos datos conocidos
@@ -94,21 +146,54 @@ class ModeloBitcoin:
             self.estado_conexion = f"Error de conexión: {e}"
             return False
 
-    # --- NUEVO: TÚNEL WEBSOCKET ---
+    # --- TÚNEL WEBSOCKET (con reconexión automática) ---
     def iniciar_stream_precio(self, callback):
         self.callback_precio = callback
+        self._stream_activo = True
         # Abrimos el túnel en un "hilo" paralelo para que la interfaz gráfica no se congele
         hilo = threading.Thread(target=self._conectar_websocket)
         hilo.daemon = True
         hilo.start()
 
+    def detener_stream_precio(self):
+        """Permite cerrar el stream de forma limpia (ej. al cerrar la app)."""
+        self._stream_activo = False
+        if self.ws:
+            self.ws.close()
+
     def _conectar_websocket(self):
         url_ws = "wss://stream.binance.com:9443/ws/btcusdt@ticker"
-        self.ws = websocket.WebSocketApp(
-            url_ws,
-            on_message=self._al_recibir_mensaje
-        )
-        self.ws.run_forever()
+        intentos = 0
+
+        # Bucle de reconexión: si el WebSocket se cae (caída de red, reinicio
+        # del servidor de Binance, etc.) se reintenta con backoff exponencial
+        # en vez de dejar el precio en vivo congelado silenciosamente.
+        while getattr(self, '_stream_activo', True):
+            try:
+                self.ws = websocket.WebSocketApp(
+                    url_ws,
+                    on_message=self._al_recibir_mensaje,
+                    on_error=self._al_ocurrir_error,
+                    on_close=self._al_cerrar_conexion
+                )
+                intentos = 0
+                self.ws.run_forever()
+            except Exception as e:
+                print(f"⚠️ Excepción en WebSocket: {e}")
+
+            if not getattr(self, '_stream_activo', True):
+                break
+
+            intentos += 1
+            espera = min(30, 2 ** intentos)  # backoff exponencial, tope de 30s
+            print(f"🔄 WebSocket desconectado. Reintentando en {espera}s (intento {intentos})...")
+            time.sleep(espera)
+
+    def _al_ocurrir_error(self, ws, error):
+        print(f"⚠️ Error de WebSocket: {error}")
+
+    def _al_cerrar_conexion(self, ws, close_status_code, close_msg):
+        print("🔌 Conexión WebSocket cerrada.")
 
     def _al_recibir_mensaje(self, ws, mensaje):
         datos = json.loads(mensaje)

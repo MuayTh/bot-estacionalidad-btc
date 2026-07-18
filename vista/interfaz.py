@@ -38,7 +38,9 @@ class VistaTerminal:
         self.lbl_proyeccion = ttk.Label(ia_frame, text="Proyección Mañana: ---")
         self.lbl_proyeccion.pack(pady=10)
         self.lbl_tendencia_ia = ttk.Label(ia_frame, text="Señal IA: ---", style="Metrica.TLabel")
-        self.lbl_tendencia_ia.pack(pady=20)
+        self.lbl_tendencia_ia.pack(pady=10)
+        self.lbl_confianza = ttk.Label(ia_frame, text="Ajuste del modelo (R²): ---", foreground="#9e9e9e")
+        self.lbl_confianza.pack(pady=10)
 
         est_frame = ttk.LabelFrame(paneles_frame, text=" Filtro Estacional ", padding="20 20 20 20")
         est_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
@@ -46,6 +48,8 @@ class VistaTerminal:
         self.lbl_mes.pack(pady=10)
         self.lbl_probabilidad = ttk.Label(est_frame, text="Win Rate Histórico: ---")
         self.lbl_probabilidad.pack(pady=10)
+        self.lbl_muestra = ttk.Label(est_frame, text="Muestra: ---", foreground="#9e9e9e")
+        self.lbl_muestra.pack(pady=2)
         self.lbl_riesgo = ttk.Label(est_frame, text="Nivel de Riesgo: ---", style="Metrica.TLabel")
         self.lbl_riesgo.pack(pady=20)
 
@@ -76,6 +80,13 @@ class VistaTerminal:
             self.lbl_proyeccion.config(text=f"Proyección Mañana: ${modelo.prediccion_mañana:,.2f}")
             color_ia = "#4caf50" if "ALCISTA" in modelo.tendencia_ia else "#ff4c4c"
             self.lbl_tendencia_ia.config(text=f"Señal IA: {modelo.tendencia_ia}", foreground=color_ia)
+
+            confianza = getattr(modelo, 'confianza_modelo', None)
+            if confianza is not None:
+                self.lbl_confianza.config(text=f"Ajuste del modelo (R²): {confianza:.2f} (solo referencial, no garantiza acierto futuro)")
+
+            muestra = getattr(modelo, 'muestra_mes_actual', 0)
+            self.lbl_muestra.config(text=f"Muestra: {muestra} años observados")
 
             self.lbl_probabilidad.config(text=f"Win Rate Histórico: {modelo.probabilidad_mes}%")
             color_riesgo = "#4caf50" if "Favorable" in modelo.riesgo_estacional else ("#ff4c4c" if "Peligroso" in modelo.riesgo_estacional else "#f3ba2f")
