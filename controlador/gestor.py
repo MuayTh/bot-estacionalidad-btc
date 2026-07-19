@@ -22,19 +22,14 @@ class ControladorTerminal:
     def calcular_decision_final(self):
         tendencia = self.modelo.tendencia_ia
         probabilidad = self.modelo.probabilidad_mes
-        rsi = self.modelo.rsi_actual 
 
+        # Dejamos correr la tendencia alcista sin importar si el RSI marca sobrecompra
         if "ALCISTA" in tendencia and probabilidad >= 50:
-            if rsi > 70:
-                return f" BLOQUEADA (RSI en {rsi:.1f} - Sobrecomprado) ", "#f3ba2f"
-            else:
-                return f" COMPRA APROBADA (RSI {rsi:.1f} Óptimo) ", "#4caf50"
+            return " COMPRA APROBADA (Tendencia Fuerte) ", "#4caf50"
                 
         elif "BAJISTA" in tendencia and probabilidad < 50:
-            if rsi < 30:
-                return f" BLOQUEADA (RSI en {rsi:.1f} - Sobrevendido) ", "#f3ba2f"
-            else:
-                return f" VENTA APROBADA (RSI {rsi:.1f} Óptimo) ", "#ff4c4c"
+            return " VENTA APROBADA (Tendencia Bajista) ", "#ff4c4c"
+            
         else:
             return " OPERACIÓN BLOQUEADA (Señales Mixtas / Riesgo) ", "#f3ba2f"
 

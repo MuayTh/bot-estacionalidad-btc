@@ -123,20 +123,20 @@ class ModeloBitcoin:
             # Este valor es solo un indicador de ajuste, no una garantía de acierto.
             self.confianza_modelo = modelo.score(X, y)
             
-            # --- NUEVO: PREDICCIÓN ACTUALIZADA ---
-            # Para predecir mañana, le damos el día siguiente más los últimos datos conocidos
-            dia_mañana = pd.DataFrame({
-                'Dias': [len(df)],
-                'RSI': [self.rsi_actual],
-                'SMA_7': [df['SMA_7'].iloc[-1]]
-            })
+            # --- NUEVA LÓGICA: SEÑAL POR PENDIENTE ---
+            # El coeficiente 0 corresponde a la variable 'Dias'. 
+            # Nos dice la inclinación de la tendencia descontando el ruido diario.
+            pendiente_tendencia = modelo.coef_[0]
             
+            # Mantenemos el cálculo de la predicción de mañana solo para mostrarlo en la interfaz
+            dia_mañana = pd.DataFrame({'Dias': [len(df)], 'RSI': [self.rsi_actual], 'SMA_7': [df['SMA_7'].iloc[-1]]})
             self.prediccion_mañana = modelo.predict(dia_mañana)[0]
             
-            if self.prediccion_mañana > self.precio_actual:
-                self.tendencia_ia = "ALCISTA (Proyección Positiva)"
+            # La decisión ahora depende de la estructura de la tendencia, no de un punto aislado
+            if pendiente_tendencia > 0:
+                self.tendencia_ia = "ALCISTA (Pendiente Positiva)"
             else:
-                self.tendencia_ia = "BAJISTA (Proyección Negativa)"
+                self.tendencia_ia = "BAJISTA (Pendiente Negativa)"
                 
             self.estado_conexion = "Datos sincronizados y modelo entrenado."
             self.evaluar_estacionalidad()
