@@ -80,9 +80,10 @@ class ControladorTerminal:
         self.vista.root.after(0, lambda: self.vista.lbl_precio.config(text=f"Precio Actual: ${precio_nuevo:,.2f}"))
 
     def iniciar_simulacion(self):
-        self.vista.lbl_sim_resultado.config(text="Procesando 500 días de IA histórica...", foreground="#f3ba2f")
+        self.vista.lbl_sim_resultado.config(text="Procesando historial de IA...", foreground="#f3ba2f")
         self.vista.root.update()
-        
-        self.simulador = MotorBacktesting() 
-        exito, capital, rendimiento, operaciones, win_rate = self.simulador.ejecutar_simulacion()
-        self.vista.actualizar_simulacion(exito, capital, rendimiento, operaciones, win_rate)
+
+        dias = self.vista.obtener_periodo_seleccionado()
+        self.simulador = MotorBacktesting()
+        resultado = self.simulador.ejecutar_simulacion(dias=dias)
+        self.vista.actualizar_simulacion(resultado)
